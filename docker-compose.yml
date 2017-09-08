@@ -1,0 +1,148 @@
+version: '2'
+
+services:
+
+# DBMS
+  postgres:
+#    restart: always
+    image: postgres:9.6-alpine
+    expose:
+      - "5432"
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    env_file:
+      - variables.env
+    networks:
+      - db
+
+  mysql:
+#    restart: always
+    image: mysql:5.7
+    expose:
+      - "3306"
+    ports:
+      - "3308:3306"
+    volumes:
+      - ./data/mysql:/docker-entrypoint-initdb.d
+      - mysql:/var/lib/mysql
+    env_file:
+        - variables.env
+    networks:
+      - db
+
+# Document oriented DB
+  mongo:
+#    restart: always
+    image: mongo:3.4
+    expose:
+      - "27017"
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo:/data/db
+    networks:
+      - db
+
+# Key Value DB
+
+  redis:
+#    restart: always
+    image: redis:3.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis:/data
+    networks:
+      - db
+
+  memcached:
+#    restart: always
+    image: memcached:1.4-alpine
+    ports:
+      - "11213:11211"
+    networks:
+      - db
+
+# Search
+
+  elasticsearch:
+#    restart: always
+    image: elasticsearch:5.2-alpine
+    expose:
+      - "9200"
+      - "9300"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    env_file:
+      - variables.env
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    networks:
+      - db
+
+# Error tracking
+
+# place for sentry
+
+# Server
+
+  nginx:
+    image: nginx:latest
+    ports:
+        - "8081:80"
+    volumes:
+        - ./application:/project
+        - ./conf/nginx/conf.d/site.conf.template:/etc/nginx/conf.d/site.conf.template
+    links:
+        - app
+    networks:
+      - backend
+    env_file:
+      - variables.env
+    command: /bin/bash -c "envsubst '$$WEB_ALIAS_DOMAIN $$WEB_DOCUMENT_ROOT' < /etc/nginx/conf.d/site.conf.template > /etc/nginx/conf.d/site.conf &&  nginx -g 'daemon off;'"
+
+# App
+  app:
+#    restart: always
+    build: docker/app
+    working_dir: /project
+    volumes:
+      - ./application:/project
+#      - ./cache:/project/cache
+#      - ./logs:/project/logs
+      - ./conf/php/php-fpm.d/www.conf.template:/usr/local/etc/php-fpm.d/www.conf.template
+      - ./conf/php/fpm.ini:/usr/local/etc/php/conf.d/100-custom.ini
+    depends_on:
+      - postgres
+      - redis
+      - memcached
+      - elasticsearch
+    networks:
+      - backend
+      - db
+    env_file:
+      - variables.env
+    command: /bin/bash -c "envsubst \"`for v in $$(compgen -v); do printf '$${%s} ' $$v ; done`\" < /usr/local/etc/php-fpm.d/www.conf.template > /usr/local/etc/php-fpm.d/www.conf && php-fpm"
+
+volumes:
+  mongo:
+    driver: local
+  postgres:
+    driver: local
+  mysql:
+    driver: local
+  beanstalk:
+    driver: local
+  redis:
+    driver: local
+  esdata:
+    driver: local
+
+networks:
+  backend:
+    driver: bridge
+  db:
+    driver: bridge
